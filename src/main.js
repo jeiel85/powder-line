@@ -48,7 +48,21 @@ if (coarse) document.body.classList.add('touch-device');
 
 let loadout = loadLoadout();
 let trackId = getTrack(storage.get(TRACK_KEY)).id;
-let records = storage.get(RECORDS_KEY) || {};
+let records = loadRecords();
+
+/** 손상되었거나 다른 형식인 저장값은 버린다 */
+function loadRecords() {
+  const raw = storage.get(RECORDS_KEY);
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const t of TRACKS) {
+    const r = raw[t.id];
+    if (r && Number.isFinite(r.bestTime) && Number.isFinite(r.bestScore)) {
+      out[t.id] = { bestTime: r.bestTime, bestScore: r.bestScore, runs: Number.isFinite(r.runs) ? r.runs : 1 };
+    }
+  }
+  return out;
+}
 
 const game = new Game(renderer, { audio, input, hud, quality });
 let locker = null;
