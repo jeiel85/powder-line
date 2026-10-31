@@ -37,6 +37,14 @@
         <span id="main-track-name" class="pill-name">파인 밸리</span>
         <span id="main-track-best" class="pill-best"></span>
       </button>
+      <div class="mode-toggle">
+        <span class="pill-label">조작 모드</span>
+        <div class="seg" role="group" aria-label="조작 모드">
+          <button data-mode="easy">쉬움</button>
+          <button data-mode="pro">프로</button>
+        </div>
+        <p id="mode-desc" class="mode-desc"></p>
+      </div>
       <div class="menu-buttons">
         <button id="btn-play" class="btn primary big">▶ 라이딩 시작</button>
         <button class="btn" data-go="tracks">🏔 트랙 선택</button>
@@ -80,6 +88,16 @@
   <section id="screen-controls" class="screen modal hidden">
     <div class="modal-card">
       <h2>조작법</h2>
+      <h3 class="keys-title">쉬움 모드 <span>기본</span></h3>
+      <table class="keys">
+        <tr><th>← → / A D</th><td>지상: 방향 전환 (곧게 갈 땐 자동 가속)</td></tr>
+        <tr><th>Space</th><td>바로 점프 — 킥커 위에서 누르면 더 높이</td></tr>
+        <tr><th>공중에서 ← →</th><td>한 번 누를 때마다 360° 스핀 (여러 번 = 720°, 1080°)</td></tr>
+        <tr><th>공중에서 ↑ ↓</th><td>한 번 누르면 프론트플립 / 백플립</td></tr>
+        <tr><th>↓ / S (지상)</th><td>브레이크</td></tr>
+        <tr><th>자동</th><td>그랩과 착지 각도는 자동으로 맞춰집니다</td></tr>
+      </table>
+      <h3 class="keys-title">프로 모드</h3>
       <table class="keys">
         <tr><th>← → / A D</th><td>지상: 카빙 회전 · 공중: 스핀</td></tr>
         <tr><th>↑ / W</th><td>지상: 턱(가속) · 공중: 프론트플립</td></tr>

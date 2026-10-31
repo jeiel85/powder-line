@@ -40,6 +40,15 @@ export class Game {
     this.tumbleVel = new THREE.Vector3();
     this.ctl = { left: false, right: false, up: false, down: false, jump: false, grab: false };
     this.auto = { plan: null };
+    // 쉬운 조작: 탭 한 번으로 회전 완성, 착지 각도 자동 보정, 즉시 점프
+    this.easy = true;
+    this.prevIn = { left: false, right: false, up: false, down: false, jump: false };
+    this.tap = { left: false, right: false, up: false, down: false, jump: false };
+    this._pressed = {};
+    this.jumpQueued = false;
+    this.spinTarget = 0;
+    this.flipTarget = 0;
+    this.grabbing = false;
     this._f = new THREE.Vector3();
     this._lat = new THREE.Vector3();
     this._gt = new THREE.Vector3();
@@ -120,6 +129,9 @@ export class Game {
     this.landSquash = 0;
     this.tuck = false;
     this.grabType = 'indy';
+    this.grabbing = false;
+    this.jumpQueued = false;
+    this.spinTarget = this.flipTarget = 0;
     this.sprayAcc = 0;
     this.tumble.set(0, 0, 0);
     this.normalAt(this.p, this.n);
@@ -136,6 +148,7 @@ export class Game {
 
   startRun() {
     this.reset();
+    this.input.clear();
     this.mode = 'countdown';
     this.countdown = 3.999;
     this.lastBeep = 4;
@@ -240,6 +253,44 @@ export class Game {
       return;
     }
     Object.assign(c, this.input.state);
+    const pressed = this.input.consumePresses(this._pressed);
+    for (const k in this.tap) {
+      this.tap[k] = (c[k] && !this.prevIn[k]) || pressed[k];
+      this.prevIn[k] = c[k];
+    }
+    if (this.isEasy()) this.handleEasyTaps();
+  }
+
+  isEasy() {
+    return this.easy && this.mode !== 'attract';
+  }
+
+  setEasy(on) {
+    this.easy = on;
+  }
+
+  /** 쉬운 조작: 프레임마다 새로 눌린 키를 동작 예약으로 바꾼다 */
+  handleEasyTaps() {
+    const t = this.tap;
+    if (this.crashed) return;
+    if (this.grounded) {
+      if (t.jump) this.jumpQueued = true;
+      return;
+    }
+    if (t.left) this.spinTarget -= Math.PI * 2;
+    if (t.right) this.spinTarget += Math.PI * 2;
+    if (t.up) this.flipTarget -= Math.PI * 2;
+    if (t.down) this.flipTarget += Math.PI * 2;
+  }
+
+  /** 현재 궤적으로 지면에 닿기까지 남은 시간(초) 추정 */
+  timeToGround() {
+    const P = this.p, V = this.v, c = this.course;
+    const s = -P.z;
+    const h = Math.max(0, P.y - c.height(P.x, s));
+    const g = c.grad(P.x, s, this._gr);
+    const vrel = V.y - (g.x * V.x - g.y * V.z);
+    return (vrel + Math.sqrt(vrel * vrel + 2 * G * h)) / G;
   }
 
   /** 데모(메뉴 배경) 모드용 자동 주행 */
@@ -346,7 +397,8 @@ export class Game {
     this.skid = damp(this.skid, clamp(lat / 6 + brake * 0.8 * Math.min(1, speed / 6), 0, 1), 10, dt);
 
     const sp = V.length();
-    this.tuck = ctl.up && !brake;
+    // 쉬운 조작은 크게 꺾지 않을 때 자동으로 턱 자세를 잡는다
+    this.tuck = this.isEasy() ? !brake && Math.abs(steer) < 0.5 : ctl.up && !brake;
     if (sp > 1e-3) {
       const mu = 0.035 + brake * 0.42;
       const drag = 0.0062 * bt.drag * (this.tuck ? 0.6 : 1);
@@ -356,7 +408,16 @@ export class Game {
       V.multiplyScalar(Math.max(0, sp - dec * dt) / sp);
     }
 
-    if (ctl.jump) {
+    if (this.isEasy()) {
+      if (this.jumpQueued) {
+        this.jumpQueued = false;
+        V.addScaledVector(N, 5.6 * bt.pop);
+        this.takeoff();
+        this.audio.pop();
+        P.addScaledVector(V, dt);
+        return;
+      }
+    } else if (ctl.jump) {
       this.charge = Math.min(1, this.charge + dt * 1.6);
     } else if (this.charge > 0) {
       V.addScaledVector(N, (3.4 + this.charge * 3.6) * bt.pop);
@@ -395,24 +456,42 @@ export class Game {
     this.spin = this.flip = this.spinVel = this.flipVel = 0;
     this.takeoffSwitch = this.switch;
     this.wasGrab = false;
+    this.grabbing = false;
+    this.jumpQueued = false;
+    this.spinTarget = 0;
+    this.flipTarget = 0;
   }
 
   stepAir(dt, steer) {
     const P = this.p, V = this.v, bt = this.bt, ctl = this.ctl;
     V.y -= G * dt;
     V.multiplyScalar(1 - 0.015 * dt);
-    this.spinVel = damp(this.spinVel, steer * bt.spin, steer ? 6 : 9, dt);
+    let autoGrab = false;
+    if (this.isEasy()) {
+      const tl = this.timeToGround();
+      if (tl < 0.45) {
+        // 착지 직전: 가장 가까운 착지 가능 각도(스핀 180°, 플립 360° 단위)로 목표를 접는다
+        this.spinTarget = Math.round(this.spin / Math.PI) * Math.PI;
+        this.flipTarget = Math.round(this.flip / (Math.PI * 2)) * Math.PI * 2;
+      }
+      this.spinVel = this.driveTo(this.spin, this.spinTarget, this.spinVel, bt.spin * 1.1, 26, dt);
+      this.flipVel = this.driveTo(this.flip, this.flipTarget, this.flipVel, bt.flip * 1.1, 22, dt);
+      autoGrab = this.airTime > 0.35 && tl > 0.3;
+    } else {
+      this.spinVel = damp(this.spinVel, steer * bt.spin, steer ? 6 : 9, dt);
+      const fl = (ctl.down ? 1 : 0) - (ctl.up ? 1 : 0);
+      this.flipVel = damp(this.flipVel, fl * bt.flip, fl ? 5 : 9, dt);
+    }
     this.spin += this.spinVel * dt;
-    const fl = (ctl.down ? 1 : 0) - (ctl.up ? 1 : 0);
-    this.flipVel = damp(this.flipVel, fl * bt.flip, fl ? 5 : 9, dt);
     this.flip += this.flipVel * dt;
-    if (ctl.grab) {
+    this.grabbing = ctl.grab || autoGrab;
+    if (this.grabbing) {
       if (!this.wasGrab) {
         this.grabType = Math.abs(this.spinVel) > 1.5 ? 'indy' : Math.abs(this.flipVel) > 1.5 ? 'mute' : 'method';
       }
       this.grabTime += dt;
     }
-    this.wasGrab = ctl.grab;
+    this.wasGrab = this.grabbing;
     this.airTime += dt;
 
     P.addScaledVector(V, dt);
@@ -423,6 +502,13 @@ export class Game {
     }
   }
 
+  /** 목표 각도에서 감속해 멈추는 회전 속도 */
+  driveTo(cur, target, vel, maxV, acc, dt) {
+    const d = target - cur;
+    const want = Math.sign(d) * Math.min(maxV, Math.sqrt(2 * acc * Math.abs(d)));
+    return damp(vel, want, 14, dt);
+  }
+
   land() {
     const P = this.p, V = this.v, N = this.n;
     this.normalAt(P, N);
@@ -430,8 +516,10 @@ export class Game {
     const rs = Math.abs(wrapPi(this.spin));
     const sErr = rs > Math.PI / 2 ? Math.PI - rs : rs;
     const fErr = Math.abs(wrapPi(this.flip));
-    if (sErr > 0.9 || fErr > 0.95 || vn > 22) {
-      this.doCrash(vn > 22 ? '너무 세게 착지했어요!' : '착지 실패!');
+    const easy = this.isEasy();
+    const maxVn = easy ? 30 : 22;
+    if (sErr > (easy ? 1.25 : 0.9) || fErr > (easy ? 1.3 : 0.95) || vn > maxVn) {
+      this.doCrash(vn > maxVn ? '너무 세게 착지했어요!' : '착지 실패!');
       return;
     }
     V.addScaledVector(N, -V.dot(N));
@@ -447,6 +535,7 @@ export class Game {
       this.switch = !this.switch;
     }
     this.grounded = true;
+    this.grabbing = false;
     this.landSquash = Math.min(1, 0.3 + vn / 14);
     this.audio.land(Math.min(1, vn / 12));
     this.world.spray.emit(P, V, 18 + Math.floor(vn * 2), 3, 2);
@@ -578,6 +667,7 @@ export class Game {
     const total = this.time + this.penalty;
     this.finished = {
       trackId: this.track.id,
+      easy: this.easy,
       time: this.time,
       penalty: this.penalty,
       total,
@@ -617,7 +707,7 @@ export class Game {
       crouch: Math.max(this.charge * 0.9, this.landSquash, inAir ? 0.3 : 0.08, this.crashed ? 0.7 : 0, this.mode === 'countdown' ? 0.25 : 0),
       tuck: onGround && this.tuck ? 1 : 0,
       lean: this.leanS,
-      grab: inAir && this.ctl.grab ? 1 : 0,
+      grab: inAir && this.grabbing ? 1 : 0,
       grabType: this.grabType,
       brake: this.brakeS,
       headYaw: this.switch ? -1.2 : 1.2,
@@ -694,7 +784,8 @@ export class Game {
     this.setText('speed', H.speed, String(Math.round(this.v.length() * 3.6)));
     this.setText('combo', H.combo, this.combo > 1 && this.comboTimer > 0 ? `COMBO ×${this.combo}` : '');
     const gates = this.course.gates.length;
-    this.setText('gates', H.gates, gates ? `게이트 ${this.gatesPassed}/${gates}` : '프리라이드');
+    const label = gates ? `게이트 ${this.gatesPassed}/${gates}` : '프리라이드';
+    this.setText('gates', H.gates, this.easy ? `${label} · 쉬움` : label);
     const prog = clamp(-this.p.z / this.course.length, 0, 1);
     const pct = `${(prog * 100).toFixed(1)}%`;
     if (this.hudCache.prog !== pct) {

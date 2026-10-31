@@ -13,6 +13,11 @@ import { storage } from './util.js';
 const $ = (id) => document.getElementById(id);
 const RECORDS_KEY = 'powderline.records.v1';
 const TRACK_KEY = 'powderline.track';
+const MODE_KEY = 'powderline.controlMode';
+const MODE_DESC = {
+  easy: '탭 한 번으로 스핀·플립이 완성되고 착지 각도와 그랩이 자동으로 맞춰집니다.',
+  pro: '누르는 동안만 회전하고 착지 각도도 직접 맞춥니다. 알리는 눌렀다 떼서 높이를 조절.',
+};
 
 function fatal(msg) {
   $('loading-text').textContent = msg;
@@ -48,23 +53,27 @@ if (coarse) document.body.classList.add('touch-device');
 
 let loadout = loadLoadout();
 let trackId = getTrack(storage.get(TRACK_KEY)).id;
+let controlMode = storage.get(MODE_KEY) === 'pro' ? 'pro' : 'easy';
 let records = loadRecords();
+/** 쉬움 모드 기록은 프로 기록과 따로 보관한다 */
+const recKey = (id, mode = controlMode) => (mode === 'easy' ? `${id}:easy` : id);
 
 /** 손상되었거나 다른 형식인 저장값은 버린다 */
 function loadRecords() {
   const raw = storage.get(RECORDS_KEY);
   const out = {};
   if (!raw || typeof raw !== 'object') return out;
-  for (const t of TRACKS) {
-    const r = raw[t.id];
+  for (const key of TRACKS.flatMap((t) => [t.id, `${t.id}:easy`])) {
+    const r = raw[key];
     if (r && Number.isFinite(r.bestTime) && Number.isFinite(r.bestScore)) {
-      out[t.id] = { bestTime: r.bestTime, bestScore: r.bestScore, runs: Number.isFinite(r.runs) ? r.runs : 1 };
+      out[key] = { bestTime: r.bestTime, bestScore: r.bestScore, runs: Number.isFinite(r.runs) ? r.runs : 1 };
     }
   }
   return out;
 }
 
 const game = new Game(renderer, { audio, input, hud, quality });
+game.setEasy(controlMode === 'easy');
 let locker = null;
 
 // ── 화면 전환 ──────────────────────────────────────────
@@ -111,11 +120,23 @@ document.addEventListener('click', (e) => {
 });
 
 // ── 기록 ───────────────────────────────────────────────
-function bestOf(id) {
-  return records[id] || {};
+function bestOf(id, mode) {
+  return records[recKey(id, mode)] || {};
+}
+
+function setControlMode(mode) {
+  controlMode = mode;
+  storage.set(MODE_KEY, mode);
+  game.setEasy(mode === 'easy');
+  refreshMain();
+}
+for (const b of document.querySelectorAll('[data-mode]')) {
+  b.addEventListener('click', () => setControlMode(b.dataset.mode));
 }
 
 function refreshMain() {
+  for (const b of document.querySelectorAll('[data-mode]')) b.classList.toggle('on', b.dataset.mode === controlMode);
+  $('mode-desc').textContent = MODE_DESC[controlMode];
   const t = getTrack(trackId);
   $('main-track-name').textContent = `${t.name} · ${'◆'.repeat(t.difficulty)}${'◇'.repeat(3 - t.difficulty)}`;
   const b = bestOf(t.id);
@@ -161,7 +182,7 @@ function renderTracks() {
           <li><b>${st.kickers}</b>킥커</li>
           <li><b>${st.gates || '–'}</b>게이트</li>
         </ul>
-        <div class="tc-best">${b.bestTime ? `🏆 ${formatTime(b.bestTime)} · ${b.bestScore.toLocaleString('en-US')}점` : '기록 없음'}</div>
+        <div class="tc-best">${b.bestTime ? `🏆 ${formatTime(b.bestTime)} · ${b.bestScore.toLocaleString('en-US')}점${controlMode === 'easy' ? ' (쉬움)' : ''}` : '기록 없음'}</div>
       </div>`;
     card.addEventListener('click', () => {
       selectTrack(t.id);
@@ -289,10 +310,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 game.onFinish = (r) => {
-  const prev = bestOf(r.trackId);
+  const mode = r.easy ? 'easy' : 'pro';
+  const prev = bestOf(r.trackId, mode);
   const newTime = !prev.bestTime || r.total < prev.bestTime;
   const newScore = prev.bestScore === undefined || r.score > prev.bestScore;
-  records[r.trackId] = {
+  records[recKey(r.trackId, mode)] = {
     bestTime: newTime ? r.total : prev.bestTime,
     bestScore: newScore ? r.score : prev.bestScore,
     runs: (prev.runs || 0) + 1,
@@ -308,8 +330,8 @@ game.onFinish = (r) => {
   $('res-speed').textContent = `${Math.round(r.maxSpeed)} km/h`;
   $('res-crashes').textContent = String(r.crashes);
   $('res-trick').textContent = r.bestTrick ? `${r.bestTrick.name} (${r.bestTrick.pts.toLocaleString('en-US')})` : '–';
-  const b = records[r.trackId];
-  $('res-best').textContent = `이 트랙 최고 기록 ${formatTime(b.bestTime)} · 최고 점수 ${b.bestScore.toLocaleString('en-US')} · ${b.runs}회 완주`;
+  const b = records[recKey(r.trackId, mode)];
+  $('res-best').textContent = `${mode === 'easy' ? '쉬움 모드 · ' : ''}이 트랙 최고 기록 ${formatTime(b.bestTime)} · 최고 점수 ${b.bestScore.toLocaleString('en-US')} · ${b.runs}회 완주`;
   show('results');
 };
 

@@ -12,6 +12,8 @@ const ACTIONS = { KeyR: 'respawn', Escape: 'pause', KeyP: 'pause', KeyC: 'camera
 export class Input {
   constructor() {
     this.state = { left: false, right: false, up: false, down: false, jump: false, grab: false };
+    // 프레임 사이에 눌렀다 뗀 짧은 탭도 놓치지 않도록 눌림을 래치한다
+    this.pressed = { left: false, right: false, up: false, down: false, jump: false, grab: false };
     this.handlers = {};
     this.enabled = true;
     this.touchHeld = new Map();
@@ -21,6 +23,7 @@ export class Input {
       const k = KEYMAP[e.code];
       if (k) {
         if (this.enabled) e.preventDefault();
+        if (!e.repeat) this.pressed[k] = true;
         this.state[k] = true;
       }
       const a = ACTIONS[e.code];
@@ -35,7 +38,19 @@ export class Input {
 
   on(action, fn) { this.handlers[action] = fn; }
   emit(action) { this.handlers[action]?.(); }
-  clear() { for (const k in this.state) this.state[k] = false; }
+  clear() {
+    for (const k in this.state) this.state[k] = false;
+    for (const k in this.pressed) this.pressed[k] = false;
+  }
+
+  /** 지난 호출 이후 새로 눌린 키를 돌려주고 래치를 비운다 */
+  consumePresses(out) {
+    for (const k in this.pressed) {
+      out[k] = this.pressed[k];
+      this.pressed[k] = false;
+    }
+    return out;
+  }
 
   /** data-key 속성을 가진 터치 버튼을 연결한다 */
   bindTouch(root) {
@@ -45,6 +60,7 @@ export class Input {
         e.preventDefault();
         el.setPointerCapture?.(e.pointerId);
         el.classList.add('on');
+        this.pressed[k] = true;
         this.state[k] = true;
       };
       const up = (e) => {
