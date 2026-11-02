@@ -1,6 +1,6 @@
 {
   "name": "powder-line",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "브라우저 3D 스노보드 게임 (빌드 없음, 정적 호스팅)",
