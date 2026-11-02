@@ -463,4 +463,4 @@ boot().catch((err) => {
 });
 
 // 콘솔 디버깅용 핸들
-window.powderline = { game, get loadout() { return loadout; } };
+window.powderline = { game, get loadout() { return loadout; }, get locker() { return locker; } };

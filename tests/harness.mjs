@@ -8,6 +8,7 @@ const ctx2d = new Proxy(
   {
     get: (_, key) => {
       if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => ({ addColorStop: noop });
+      if (key === 'createImageData') return (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) });
       return noop;
     },
     set: () => true,
