@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Rider } from './rider.js';
+import { treeGeometry } from './world.js';
 
 /** 라이더 꾸미기 화면용 미리보기 씬 */
 export class Locker {
@@ -36,13 +37,17 @@ export class Locker {
     ped.receiveShadow = true;
     this.scene.add(floor, ped);
 
-    const treeMat = new THREE.MeshStandardMaterial({ color: '#2f5a46', flatShading: true, roughness: 0.9 });
+    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.88 });
+    const treeGeos = [treeGeometry(1), treeGeometry(2), treeGeometry(3)];
     for (let i = 0; i < 14; i++) {
       const a = Math.PI * (1.05 + (i / 13) * 0.9); // 카메라 반대편(뒤쪽 반원)에만 배치
       const r = 9 + (i % 3) * 3;
       const s = 0.9 + (i % 4) * 0.3;
-      const t = new THREE.Mesh(new THREE.ConeGeometry(1.4 * s, 4.5 * s, 7), treeMat);
-      t.position.set(Math.cos(a) * r, 2.25 * s, Math.sin(a) * r - 4);
+      const t = new THREE.Mesh(treeGeos[i % 3], treeMat);
+      t.scale.setScalar(s);
+      t.rotation.y = i * 1.7;
+      t.position.set(Math.cos(a) * r, 0, Math.sin(a) * r - 4);
+      t.castShadow = true;
       this.scene.add(t);
     }
 
