@@ -46,20 +46,25 @@ function getSnowNormal() {
   return snowNormal;
 }
 
-/** 눈이 쌓인 층층 가문비나무. 각 층 윗면에만 눈을 얹는다 */
-export function treeGeometry(seed) {
+/**
+ * 눈이 쌓인 층층 가문비나무. 각 층 윗면에만 눈을 얹는다.
+ * quality 'low'(모바일 등)는 층·분할 수를 줄여 그루당 삼각형을 절반 이하로 낮춘다.
+ */
+export function treeGeometry(seed, quality = 'high') {
+  const low = quality === 'low';
   const rng = mulberry32(seed);
   const green = new THREE.Color('#2f5d43');
   const dark = new THREE.Color('#1b3a2b');
   const snow = new THREE.Color('#f4f8ff');
   const parts = [];
-  const tiers = 5;
+  const tiers = low ? 4 : 5;
+  const spacing = (0.92 * 4) / (tiers - 1); // 층 수와 무관하게 전체 높이는 같게
   for (let i = 0; i < tiers; i++) {
     const t = i / (tiers - 1);
     const radius = 1.75 * (1 - t * 0.78);
-    const height = 1.9 - t * 0.45;
-    const y = 0.9 + i * 0.92;
-    const g = jitter(new THREE.ConeGeometry(radius, height, 11, 3), 0.13, rng);
+    const height = (1.9 - t * 0.45) * (low ? 1.12 : 1);
+    const y = 0.9 + i * spacing;
+    const g = jitter(new THREE.ConeGeometry(radius, height, low ? 7 : 11, low ? 2 : 3), 0.13, rng);
     g.translate(0, y + height / 2, 0);
     const phase = rng() * 6;
     parts.push({
@@ -73,10 +78,10 @@ export function treeGeometry(seed) {
       },
     });
   }
-  const top = new THREE.ConeGeometry(0.28, 0.7, 8);
-  top.translate(0, 0.9 + tiers * 0.92 + 0.6, 0);
+  const top = new THREE.ConeGeometry(0.28, 0.7, low ? 6 : 8);
+  top.translate(0, 0.9 + 5 * 0.92 + 0.6, 0);
   parts.push({ geo: top, color: snow });
-  const trunk = new THREE.CylinderGeometry(0.16, 0.26, 1.4, 7);
+  const trunk = new THREE.CylinderGeometry(0.16, 0.26, 1.4, low ? 5 : 7);
   trunk.translate(0, 0.7, 0);
   parts.push({ geo: trunk, color: '#4a3426' });
   return mergeColored(parts);
@@ -265,7 +270,7 @@ export function buildWorld(course, quality = 'high') {
   const VARIANTS = 3;
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, flatShading: true });
   const treeMeshes = Array.from({ length: VARIANTS }, (_, v) =>
-    new THREE.InstancedMesh(treeGeometry(track.seed * 7 + v), treeMat, Math.ceil(trees.length / VARIANTS)));
+    new THREE.InstancedMesh(treeGeometry(track.seed * 7 + v, quality), treeMat, Math.ceil(trees.length / VARIANTS)));
   const mtx = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
