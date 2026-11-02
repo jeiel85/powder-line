@@ -166,13 +166,15 @@ export function buildCourse(track) {
   };
 
   /**
-   * dh/dx, dh/ds (수치 미분). s 방향은 후방 차분을 써서, 킥커 립 바로 앞에서
-   * 법선이 립 너머 낙차에 오염되어 이륙 속도를 깎지 않게 한다.
+   * dh/dx, dh/ds (수치 미분). s 방향은 진행 방향의 뒤쪽 차분을 써서(dir: +1 내리막, -1 오르막),
+   * 킥커 립 바로 앞에서 법선이 립 너머 낙차에 오염되어 이륙 속도를 깎지 않게 한다.
    */
-  const grad = (x, s, out) => {
+  const grad = (x, s, out, dir = 1) => {
     const e = 0.25;
     out.x = (height(x + e, s) - height(x - e, s)) / (2 * e);
-    out.y = (height(x, s) - height(x, s - 2 * e)) / (2 * e);
+    out.y = dir >= 0
+      ? (height(x, s) - height(x, s - 2 * e)) / (2 * e)
+      : (height(x, s + 2 * e) - height(x, s)) / (2 * e);
     return out;
   };
 

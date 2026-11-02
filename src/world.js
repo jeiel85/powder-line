@@ -246,6 +246,9 @@ export function buildWorld(course, quality = 'high') {
     const color = g.side > 0 ? '#ff3b4a' : '#2f6bff';
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, side: THREE.DoubleSide, emissive: color, emissiveIntensity: env.time === 'night' ? 0.6 : 0.1 });
     const grp = new THREE.Group();
+    const flags = [];
+    const rings = [];
+    const ringMat = new THREE.MeshBasicMaterial({ color: '#7dffb0' });
     for (const sx of [-1, 1]) {
       const x = g.x + (sx * g.w) / 2;
       const y = course.height(x, g.s);
@@ -254,10 +257,16 @@ export function buildWorld(course, quality = 'high') {
       const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.55), mat);
       flag.position.set(x - sx * 0.4, y + 1.55, -g.s);
       pole.castShadow = flag.castShadow = true;
-      grp.add(pole, flag);
+      // 통과 표시: 색 말고 모양으로도 구분되도록 폴 위에 고리를 띄운다
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.06, 8, 20), ringMat);
+      ring.position.set(x, y + 2.25, -g.s);
+      ring.visible = false;
+      grp.add(pole, flag, ring);
+      flags.push(flag);
+      rings.push(ring);
     }
     group.add(grp);
-    return { gate: g, mat };
+    return { gate: g, mat, flags, rings };
   });
 
   // ── 킥커 측면 마커 ──
@@ -405,15 +414,21 @@ export function buildWorld(course, quality = 'high') {
     setGateState(i, state) {
       const o = gateObjs[i];
       if (!o) return;
-      const c = state === 'passed' ? '#2fd36b' : '#7a808c';
+      const passed = state === 'passed';
+      const c = passed ? '#2fd36b' : '#7a808c';
       o.mat.color.set(c);
       o.mat.emissive.set(c);
+      // 통과 = 고리 표시, 놓침 = 깃발이 내려간다 (색각과 무관하게 구분 가능)
+      for (const r of o.rings) r.visible = passed;
+      for (const f of o.flags) f.visible = passed;
     },
     resetGates() {
       for (const o of gateObjs) {
         const c = o.gate.side > 0 ? '#ff3b4a' : '#2f6bff';
         o.mat.color.set(c);
         o.mat.emissive.set(c);
+        for (const r of o.rings) r.visible = false;
+        for (const f of o.flags) f.visible = true;
       }
     },
     update(dt, camera, focus) {

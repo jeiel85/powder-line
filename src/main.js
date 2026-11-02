@@ -15,8 +15,8 @@ const RECORDS_KEY = 'powderline.records.v1';
 const TRACK_KEY = 'powderline.track';
 const MODE_KEY = 'powderline.controlMode';
 const MODE_DESC = {
-  easy: '탭 한 번으로 스핀·플립이 완성되고 착지 각도와 그랩이 자동으로 맞춰집니다.',
-  pro: '누르는 동안만 회전하고 착지 각도도 직접 맞춥니다. 알리는 눌렀다 떼서 높이를 조절.',
+  easy: '탭 한 번에 스핀·플립 완성, 착지·그랩 자동, 나무에 부딪혀도 안 넘어져요. 기록은 모드별로 저장.',
+  pro: '누르는 동안만 회전, 착지 각도도 직접. 알리는 눌렀다 떼서 높이 조절. 기록은 모드별로 저장.',
 };
 
 function fatal(msg) {
@@ -44,7 +44,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const hud = {
   root: $('hud'), time: $('hud-time'), score: $('hud-score'), combo: $('hud-combo'), speed: $('hud-speed'),
   gates: $('hud-gates'), progress: $('hud-progress'), charge: $('hud-charge'), trick: $('trick'),
-  msg: $('hud-msg'), countdown: $('countdown'),
+  msg: $('hud-msg'), countdown: $('countdown'), queue: $('hud-queue'),
 };
 const audio = new SnowAudio();
 const input = new Input();
@@ -360,10 +360,44 @@ function resize() {
 }
 addEventListener('resize', resize);
 
+// GPU가 리셋되면(모바일 백그라운드 복귀 등) 일시정지하고 복구를 기다린다.
+// three.js가 복구 시 GL 리소스를 다시 올리므로 화면만 가렸다가 연다.
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  if (screen === 'play' && game.pause()) show('pause');
+  $('loading-text').textContent = '그래픽을 복구하는 중…';
+  $('loading').classList.remove('hidden');
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  $('loading').classList.add('hidden');
+});
+
+// 실제 FPS를 보고 렌더 해상도(pixel ratio)를 조절한다
+const perf = { acc: 0, frames: 0, ratio: renderer.getPixelRatio(), max: renderer.getPixelRatio(), min: 0.6 };
+function adaptQuality(rawDt) {
+  if (document.hidden || rawDt > 0.5) return; // 탭 전환 직후 같은 이상치는 무시
+  perf.acc += rawDt;
+  perf.frames++;
+  if (perf.acc < 2) return;
+  const fps = perf.frames / perf.acc;
+  perf.acc = 0;
+  perf.frames = 0;
+  let next = perf.ratio;
+  if (fps < 40) next = Math.max(perf.min, perf.ratio * 0.8);
+  else if (fps > 57) next = Math.min(perf.max, perf.ratio * 1.15);
+  if (Math.abs(next - perf.ratio) < 0.01) return;
+  perf.ratio = next;
+  renderer.setPixelRatio(next);
+  resize();
+}
+
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawDt = (now - last) / 1000;
   last = now;
+  adaptQuality(rawDt);
+  // 0.1초까지는 실제 경과 시간을 그대로 반영해 저FPS에서도 기록 시간이 늦어지지 않게 한다
+  const dt = Math.min(0.1, rawDt);
   if (screen === 'locker' && locker) {
     locker.update(dt);
     locker.render();
