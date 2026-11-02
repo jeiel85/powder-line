@@ -118,3 +118,25 @@ test('쉬움 모드: 장애물 중심과 정확히 겹쳐도 밖으로 밀려나
   assert.ok(dist > tree.r, `밀려난 거리 ${dist.toFixed(2)} ≤ 반지름 ${tree.r.toFixed(2)}`);
   assert.equal(g.crashed, false);
 });
+
+test('쉬움 모드: 나무에 정면으로 부딪혀도 옆으로 비켜 내려가며 갇히지 않는다', () => {
+  const g = makeGame({ easy: true });
+  const c = g.course;
+  const tree = c.trees.find((t) => Math.abs(t.dx) < c.half - 3 && t.s > 100);
+  g.spawnAt(tree.s - 15, 12);
+  g.p.x = tree.x;
+  g.p.y = c.height(g.p.x, tree.s - 15);
+  g.yaw = 0;
+  g.v.set(0, 0, -12);
+  let bumps = 0;
+  let last = g.lastBump;
+  for (let i = 0; i < 120 * 4; i++) {
+    for (const k in g.ctl) g.ctl[k] = false;
+    g.clock += DT;
+    g.step(DT);
+    if (g.lastBump !== last) { bumps++; last = g.lastBump; }
+  }
+  assert.ok(-g.p.z > tree.s + 3, `4초 뒤에도 나무(${tree.s.toFixed(1)}) 앞에 머묾: s=${(-g.p.z).toFixed(1)}`);
+  assert.ok(bumps <= 2, `감속 이벤트 ${bumps}회`);
+  assert.equal(g.crashed, false);
+});

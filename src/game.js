@@ -46,6 +46,10 @@ export class Game {
     this.tap = { left: false, right: false, up: false, down: false, jump: false };
     this._pressed = {};
     this.lastBump = -1;
+    this.bumpTimes = [];
+    this.gradDir = 1;
+    this.ttg = 4;
+    this.ttgAge = 0;
     this.jumpQueued = false;
     this.spinTarget = 0;
     this.flipTarget = 0;
@@ -133,6 +137,9 @@ export class Game {
     this.grabbing = false;
     this.jumpQueued = false;
     this.spinTarget = this.flipTarget = 0;
+    this.bumpTimes = [];
+    this.gradDir = 1;
+    this.ttgAge = 0;
     this.sprayAcc = 0;
     this.tumble.set(0, 0, 0);
     this.normalAt(this.p, this.n);
@@ -183,7 +190,10 @@ export class Game {
   // ── 지형 헬퍼 ─────────────────────────────────────────
   normalAt(p, out) {
     // 오르막(역주행) 방향으로 움직일 때는 차분 방향도 뒤집는다
-    const g = this.course.grad(p.x, -p.z, this._gr, this.v.z <= 0 ? 1 : -1);
+    // |v.z|가 작을 때는 직전 방향을 유지해 부호가 바뀔 때마다 차분 방향이 깜빡이지 않게 한다
+    if (this.v.z < -0.5) this.gradDir = 1;
+    else if (this.v.z > 0.5) this.gradDir = -1;
+    const g = this.course.grad(p.x, -p.z, this._gr, this.gradDir);
     // h(x, s), s = -z  →  dh/dz = -dh/ds
     return out.set(-g.x, 1, g.y).normalize();
   }
@@ -353,8 +363,8 @@ export class Game {
     if (this.crashed) return;
 
     const c = this.course, P = this.p;
-    const s = -P.z;
-    const dx = P.x - c.center(s);
+    let s = -P.z;
+    let dx = P.x - c.center(s);
     // 바깥 경계
     const limit = c.half + 85;
     if (Math.abs(dx) > limit) {
@@ -366,6 +376,9 @@ export class Game {
 
     this.checkCollisions(s);
     if (this.crashed) return;
+    // 쉬운 조작의 bump()가 위치를 옮겼을 수 있으므로 다시 읽는다
+    s = -P.z;
+    dx = P.x - c.center(s);
     this.checkGates(s);
 
     if (this.grounded && s - this.checkpoint > 40 && Math.abs(dx) < c.half - 2 &&
@@ -478,7 +491,13 @@ export class Game {
     V.multiplyScalar(1 - 0.015 * dt);
     let autoGrab = false;
     if (this.isEasy()) {
-      const tl = this.timeToGround();
+      // 탄도 추적은 비싸므로 1/60초마다만 다시 계산하고 그 사이엔 경과 시간만 뺀다
+      this.ttgAge -= dt;
+      if (this.ttgAge <= 0) {
+        this.ttg = this.timeToGround();
+        this.ttgAge = 1 / 60;
+      } else this.ttg -= dt;
+      const tl = this.ttg;
       if (tl < 0.45) {
         // 착지 직전: 가장 가까운 착지 가능 각도(스핀 180°, 플립 360° 단위)로 목표를 접는다
         this.spinTarget = Math.round(this.spin / Math.PI) * Math.PI;
@@ -673,6 +692,33 @@ export class Game {
       V.z -= nz * into * 1.3;
     }
     V.multiplyScalar(0.6);
+    // 정면으로 부딪히면 법선 성분만 남아 경사를 따라 같은 장애물로 계속 미끄러진다.
+    // 접선 방향(가능하면 내리막 쪽, 아니면 라이더가 있던 쪽)으로 최소 속도를 줘서 비켜 가게 한다.
+    let tx = -nz, tz = nx;
+    const flip = Math.abs(tz) > 0.2 ? tz > 0 : Math.sign(tx) !== (dx >= 0 ? 1 : -1);
+    if (flip) {
+      tx = -tx;
+      tz = -tz;
+    }
+    // 접선에 내리막(-z) 성분을 섞어 장애물을 돌아 내려가게 한다
+    let ex = tx, ez = tz - 0.6;
+    const el = Math.hypot(ex, ez);
+    ex /= el;
+    ez /= el;
+    const vn = Math.max(0, V.x * nx + V.z * nz);
+    const vt = Math.max(4, V.x * ex + V.z * ez);
+    V.x = ex * vt + nx * vn;
+    V.z = ez * vt + nz * vn;
+    this.yaw = Math.atan2(ex, -ez);
+    this.switch = false;
+    // 그래도 짧은 시간에 여러 번 부딪히면 끼인 것으로 보고 체크포인트로 옮긴다
+    this.bumpTimes = this.bumpTimes.filter((t) => this.clock - t < 2.5);
+    this.bumpTimes.push(this.clock);
+    if (this.bumpTimes.length >= 6) {
+      this.spawnAt(this.checkpoint, 7);
+      if (this.mode === 'ride') this.message('체크포인트로 복귀', 'info', 1.2);
+      return;
+    }
     if (this.clock - this.lastBump > 0.8) {
       this.lastBump = this.clock;
       this.audio.miss();
