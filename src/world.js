@@ -418,7 +418,7 @@ export function buildWorld(course, quality = 'high') {
       const c = passed ? '#2fd36b' : '#7a808c';
       o.mat.color.set(c);
       o.mat.emissive.set(c);
-      // 통과 = 고리 표시, 놓침 = 깃발이 내려간다 (색각과 무관하게 구분 가능)
+      // 통과 = 고리 표시, 놓침 = 깃발이 사라진다 (색각과 무관하게 구분 가능)
       for (const r of o.rings) r.visible = passed;
       for (const f of o.flags) f.visible = passed;
     },

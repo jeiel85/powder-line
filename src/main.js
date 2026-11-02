@@ -280,10 +280,12 @@ $('btn-play').addEventListener('click', startRide);
 $('btn-again').addEventListener('click', startRide);
 $('btn-restart').addEventListener('click', startRide);
 $('btn-resume').addEventListener('click', () => {
+  if (contextLost) return;
   game.resume();
   show('play');
 });
 $('btn-cp').addEventListener('click', () => {
+  if (contextLost) return;
   game.resume();
   show('play');
   game.manualRespawn();
@@ -294,7 +296,8 @@ $('btn-pause').addEventListener('click', () => togglePause());
 function togglePause() {
   if (screen === 'play') {
     if (game.pause()) show('pause');
-  } else if (screen === 'pause') {
+  } else if (screen === 'pause' && !contextLost) {
+    // 그래픽 복구 전에 재개하면 화면이 가려진 채 기록 시간이 흐른다
     game.resume();
     show('play');
   }
@@ -362,18 +365,37 @@ addEventListener('resize', resize);
 
 // GPU가 리셋되면(모바일 백그라운드 복귀 등) 일시정지하고 복구를 기다린다.
 // three.js가 복구 시 GL 리소스를 다시 올리므로 화면만 가렸다가 연다.
+let contextLost = false;
+let contextTimer = 0;
 canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
+  contextLost = true;
   if (screen === 'play' && game.pause()) show('pause');
   $('loading-text').textContent = '그래픽을 복구하는 중…';
   $('loading').classList.remove('hidden');
+  clearTimeout(contextTimer);
+  // 브라우저가 복구 이벤트를 끝내 보내지 않는 경우도 있어 새로고침을 안내한다
+  contextTimer = setTimeout(() => {
+    if (contextLost) $('loading-text').textContent = '그래픽이 복구되지 않았어요. 페이지를 새로고침해 주세요.';
+  }, 8000);
 });
 canvas.addEventListener('webglcontextrestored', () => {
+  contextLost = false;
+  clearTimeout(contextTimer);
   $('loading').classList.add('hidden');
 });
 
 // 실제 FPS를 보고 렌더 해상도(pixel ratio)를 조절한다
-const perf = { acc: 0, frames: 0, ratio: renderer.getPixelRatio(), max: renderer.getPixelRatio(), min: 0.6 };
+const perf = {
+  acc: 0, frames: 0, ratio: renderer.getPixelRatio(), max: renderer.getPixelRatio(), min: 0.6,
+  dropFrom: null, // 직전 하향 전 { ratio, fps }
+  floor: 0.6, // 하향이 효과 없던 해상도 아래로는 내려가지 않는다(주사율 고정 기기)
+};
+function setRatio(r) {
+  perf.ratio = r;
+  renderer.setPixelRatio(r);
+  resize();
+}
 function adaptQuality(rawDt) {
   if (document.hidden || rawDt > 0.5) return; // 탭 전환 직후 같은 이상치는 무시
   perf.acc += rawDt;
@@ -382,13 +404,22 @@ function adaptQuality(rawDt) {
   const fps = perf.frames / perf.acc;
   perf.acc = 0;
   perf.frames = 0;
-  let next = perf.ratio;
-  if (fps < 40) next = Math.max(perf.min, perf.ratio * 0.8);
-  else if (fps > 57) next = Math.min(perf.max, perf.ratio * 1.15);
-  if (Math.abs(next - perf.ratio) < 0.01) return;
-  perf.ratio = next;
-  renderer.setPixelRatio(next);
-  resize();
+  if (perf.dropFrom) {
+    // 해상도를 낮췄는데 FPS가 거의 안 오르면 GPU가 병목이 아니다(예: 30Hz 고정) → 되돌리고 고정
+    const prev = perf.dropFrom;
+    perf.dropFrom = null;
+    if (fps < prev.fps + 3) {
+      perf.floor = prev.ratio;
+      setRatio(prev.ratio);
+      return;
+    }
+  }
+  if (fps < 40 && perf.ratio > Math.max(perf.min, perf.floor) + 0.01) {
+    perf.dropFrom = { ratio: perf.ratio, fps };
+    setRatio(Math.max(perf.min, perf.floor, perf.ratio * 0.8));
+  } else if (fps > 57 && perf.ratio < perf.max - 0.01) {
+    setRatio(Math.min(perf.max, perf.ratio * 1.15));
+  }
 }
 
 let last = performance.now();
