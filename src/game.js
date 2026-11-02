@@ -652,8 +652,18 @@ export class Game {
   /** 쉬운 조작: 장애물에 넘어지는 대신 밀려나며 감속한다 */
   bump(o, dx, ds, rr) {
     const P = this.p, V = this.v;
-    const d = Math.hypot(dx, ds) || 1;
-    const nx = dx / d, nz = -ds / d; // 월드 z = -s
+    const d = Math.hypot(dx, ds);
+    let nx, nz;
+    if (d > 1e-4) {
+      nx = dx / d;
+      nz = -ds / d; // 월드 z = -s
+    } else {
+      // 장애물 중심과 겹치면 진행 반대 방향으로 밀어낸다(방향이 0이면 제자리에 갇힌다).
+      // 속도도 거의 0이면 오르막(+z) 쪽으로 뺀다.
+      const sp = Math.hypot(V.x, V.z);
+      nx = sp > 1e-4 ? -V.x / sp : 0;
+      nz = sp > 1e-4 ? -V.z / sp : 1;
+    }
     P.x = o.x + nx * (rr + 0.05);
     P.z = -o.s + nz * (rr + 0.05);
     if (this.grounded) P.y = this.course.height(P.x, -P.z);

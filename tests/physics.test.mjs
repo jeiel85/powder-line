@@ -105,3 +105,16 @@ test('역주행 시 지면 법선은 진행 방향 뒤쪽 차분을 쓴다', () 
   assert.ok(down > 0, '내리막 진행: 립 앞 램프 경사(오르막)를 봐야 함');
   assert.ok(up < down, '오르막 진행: 립 너머 낙차를 반영해야 함');
 });
+
+test('쉬움 모드: 장애물 중심과 정확히 겹쳐도 밖으로 밀려나 갇히지 않는다', () => {
+  const g = makeGame({ easy: true });
+  const c = g.course;
+  const tree = c.trees.find((t) => Math.abs(t.dx) < c.half - 3 && t.s > 100);
+  g.spawnAt(tree.s, 10);
+  g.p.x = tree.x;
+  g.p.y = c.height(tree.x, tree.s);
+  g.checkCollisions(tree.s);
+  const dist = Math.hypot(g.p.x - tree.x, -g.p.z - tree.s);
+  assert.ok(dist > tree.r, `밀려난 거리 ${dist.toFixed(2)} ≤ 반지름 ${tree.r.toFixed(2)}`);
+  assert.equal(g.crashed, false);
+});

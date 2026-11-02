@@ -30,7 +30,10 @@ jobs:
           mkdir _site
           cp -r index.html style.css favicon.svg src vendor docs _site/
           sed -i "s/__BUILD__/${GITHUB_SHA::8}/g" _site/index.html
-          ! grep -q "__BUILD__" _site/index.html
+          if grep -q "__BUILD__" _site/index.html; then
+            echo "::error::index.html에 치환되지 않은 __BUILD__가 남아 있습니다"
+            exit 1
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
