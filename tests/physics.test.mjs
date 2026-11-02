@@ -140,3 +140,14 @@ test('쉬움 모드: 나무에 정면으로 부딪혀도 옆으로 비켜 내려
   assert.ok(bumps <= 2, `감속 이벤트 ${bumps}회`);
   assert.equal(g.crashed, false);
 });
+
+test('low 품질 나무는 high보다 삼각형이 절반 이하이고 높이는 비슷하다', async () => {
+  const { treeGeometry } = await import('../src/world.js');
+  const hi = treeGeometry(3, 'high');
+  const lo = treeGeometry(3, 'low');
+  const tris = (g) => g.attributes.position.count / 3;
+  assert.ok(tris(lo) <= tris(hi) / 2, `low ${tris(lo)} / high ${tris(hi)}`);
+  hi.computeBoundingBox();
+  lo.computeBoundingBox();
+  assert.ok(Math.abs(hi.boundingBox.max.y - lo.boundingBox.max.y) < 0.3);
+});
