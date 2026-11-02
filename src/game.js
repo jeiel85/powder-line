@@ -45,6 +45,7 @@ export class Game {
     this.prevIn = { left: false, right: false, up: false, down: false, jump: false };
     this.tap = { left: false, right: false, up: false, down: false, jump: false };
     this._pressed = {};
+    this.lastBump = -1;
     this.jumpQueued = false;
     this.spinTarget = 0;
     this.flipTarget = 0;
@@ -181,7 +182,8 @@ export class Game {
 
   // ── 지형 헬퍼 ─────────────────────────────────────────
   normalAt(p, out) {
-    const g = this.course.grad(p.x, -p.z, this._gr);
+    // 오르막(역주행) 방향으로 움직일 때는 차분 방향도 뒤집는다
+    const g = this.course.grad(p.x, -p.z, this._gr, this.v.z <= 0 ? 1 : -1);
     // h(x, s), s = -z  →  dh/dz = -dh/ds
     return out.set(-g.x, 1, g.y).normalize();
   }
@@ -216,7 +218,7 @@ export class Game {
 
     if (this.mode === 'ride' || this.mode === 'finished' || this.mode === 'attract') {
       this.readControls(dt);
-      const steps = Math.min(8, Math.ceil(dt / (1 / 120)));
+      const steps = Math.min(16, Math.ceil(dt / (1 / 120)));
       const h = dt / steps;
       for (let i = 0; i < steps; i++) this.step(h);
     }
@@ -283,14 +285,22 @@ export class Game {
     if (t.down) this.flipTarget += Math.PI * 2;
   }
 
-  /** 현재 궤적으로 지면에 닿기까지 남은 시간(초) 추정 */
+  /**
+   * 현재 탄도를 따라가며 지형과 처음 만나는 시점(초)을 찾는다.
+   * 발밑 경사만 쓰면 킥커 낙차·급경사 변화 구간에서 착지 시점을 늦게 예측한다.
+   */
   timeToGround() {
     const P = this.p, V = this.v, c = this.course;
-    const s = -P.z;
-    const h = Math.max(0, P.y - c.height(P.x, s));
-    const g = c.grad(P.x, s, this._gr);
-    const vrel = V.y - (g.x * V.x - g.y * V.z);
-    return (vrel + Math.sqrt(vrel * vrel + 2 * G * h)) / G;
+    const step = 0.04;
+    let x = P.x, y = P.y, z = P.z, vy = V.y;
+    for (let t = step; t <= 4; t += step) {
+      x += V.x * step;
+      z += V.z * step;
+      vy -= G * step;
+      y += vy * step;
+      if (y <= c.height(x, -z)) return t;
+    }
+    return 4;
   }
 
   /** 데모(메뉴 배경) 모드용 자동 주행 */
@@ -631,10 +641,33 @@ export class Game {
         const dx = P.x - o.x, ds = s - o.s;
         const rr = o.r + 0.3;
         if (dx * dx + ds * ds < rr * rr && P.y < o.top - 0.1) {
-          this.doCrash(o.kind === 'tree' ? '나무와 충돌!' : '바위와 충돌!');
+          if (this.isEasy()) this.bump(o, dx, ds, rr);
+          else this.doCrash(o.kind === 'tree' ? '나무와 충돌!' : '바위와 충돌!');
           return;
         }
       }
+    }
+  }
+
+  /** 쉬운 조작: 장애물에 넘어지는 대신 밀려나며 감속한다 */
+  bump(o, dx, ds, rr) {
+    const P = this.p, V = this.v;
+    const d = Math.hypot(dx, ds) || 1;
+    const nx = dx / d, nz = -ds / d; // 월드 z = -s
+    P.x = o.x + nx * (rr + 0.05);
+    P.z = -o.s + nz * (rr + 0.05);
+    if (this.grounded) P.y = this.course.height(P.x, -P.z);
+    const into = V.x * nx + V.z * nz;
+    if (into < 0) {
+      V.x -= nx * into * 1.3;
+      V.z -= nz * into * 1.3;
+    }
+    V.multiplyScalar(0.6);
+    if (this.clock - this.lastBump > 0.8) {
+      this.lastBump = this.clock;
+      this.audio.miss();
+      this.world.spray.emit(P, V, 25, 3, 2);
+      if (this.mode === 'ride') this.message(o.kind === 'tree' ? '나무를 스쳤어요! 감속' : '바위에 부딪혀 감속', 'bad', 1);
     }
   }
 
@@ -782,6 +815,14 @@ export class Game {
     this.setText('time', H.time, formatTime(this.time + this.penalty));
     this.setText('score', H.score, this.score.toLocaleString('en-US'));
     this.setText('speed', H.speed, String(Math.round(this.v.length() * 3.6)));
+    let queue = '';
+    if (this.isEasy() && !this.grounded && !this.crashed) {
+      const deg = Math.round(Math.abs(this.spinTarget) / Math.PI) * 180;
+      const flips = Math.round(Math.abs(this.flipTarget) / (Math.PI * 2));
+      const flipName = this.flipTarget > 0 ? '백플립' : '프론트플립';
+      queue = [deg ? `${deg}°` : '', flips ? `${flips > 1 ? `${flips}× ` : ''}${flipName}` : ''].filter(Boolean).join(' + ');
+    }
+    this.setText('queue', H.queue, queue);
     this.setText('combo', H.combo, this.combo > 1 && this.comboTimer > 0 ? `COMBO ×${this.combo}` : '');
     const gates = this.course.gates.length;
     const label = gates ? `게이트 ${this.gatesPassed}/${gates}` : '프리라이드';
